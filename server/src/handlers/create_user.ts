@@ -1,23 +1,33 @@
 
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type CreateUserInput, type User } from '../schema';
 
-export async function createUser(input: CreateUserInput): Promise<User> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is creating a new user account with proper password hashing
-  // and email verification setup for the DANOVEL platform.
-  return Promise.resolve({
-    id: 0, // Placeholder ID
-    username: input.username,
-    email: input.email,
-    password_hash: 'placeholder_hash', // Should be bcrypt hashed password
-    role: input.role,
-    avatar_url: null,
-    bio: null,
-    coins_balance: 0,
-    is_active: true,
-    is_email_verified: false,
-    two_factor_enabled: false,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as User);
-}
+export const createUser = async (input: CreateUserInput): Promise<User> => {
+  try {
+    // Hash the password using Bun's built-in bcrypt-compatible hashing
+    const password_hash = await Bun.password.hash(input.password);
+
+    // Insert user record
+    const result = await db.insert(usersTable)
+      .values({
+        username: input.username,
+        email: input.email,
+        password_hash: password_hash,
+        role: input.role,
+        coins_balance: '0.00' // Convert number to string for numeric column
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const user = result[0];
+    return {
+      ...user,
+      coins_balance: parseFloat(user.coins_balance) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('User creation failed:', error);
+    throw error;
+  }
+};

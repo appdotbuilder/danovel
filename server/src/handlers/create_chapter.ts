@@ -1,22 +1,59 @@
 
+import { db } from '../db';
+import { chaptersTable, novelsTable } from '../db/schema';
 import { type CreateChapterInput, type Chapter } from '../schema';
+import { eq, max } from 'drizzle-orm';
 
-export async function createChapter(input: CreateChapterInput): Promise<Chapter> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is creating a new chapter for a novel with proper
-  // monetization settings and word count calculation in DANOVEL platform.
-  return Promise.resolve({
-    id: 0, // Placeholder ID
-    novel_id: input.novel_id,
-    chapter_number: 1, // Should be calculated based on existing chapters
-    title: input.title,
-    content: input.content,
-    status: 'draft',
-    coin_cost: input.coin_cost,
-    word_count: input.content.split(' ').length, // Simple word count
-    views: 0,
-    is_free: input.is_free,
-    created_at: new Date(),
-    updated_at: new Date()
-  } as Chapter);
-}
+export const createChapter = async (input: CreateChapterInput): Promise<Chapter> => {
+  try {
+    // First, verify the novel exists
+    const novel = await db.select()
+      .from(novelsTable)
+      .where(eq(novelsTable.id, input.novel_id))
+      .limit(1)
+      .execute();
+
+    if (novel.length === 0) {
+      throw new Error(`Novel with id ${input.novel_id} not found`);
+    }
+
+    // Get the next chapter number for this novel
+    const maxChapterResult = await db.select({
+      maxNumber: max(chaptersTable.chapter_number)
+    })
+      .from(chaptersTable)
+      .where(eq(chaptersTable.novel_id, input.novel_id))
+      .execute();
+
+    const nextChapterNumber = (maxChapterResult[0]?.maxNumber || 0) + 1;
+
+    // Calculate word count - handle empty content and normalize whitespace
+    const wordCount = input.content.trim() === '' ? 0 : input.content.trim().split(/\s+/).length;
+
+    // Insert chapter record
+    const result = await db.insert(chaptersTable)
+      .values({
+        novel_id: input.novel_id,
+        chapter_number: nextChapterNumber,
+        title: input.title,
+        content: input.content,
+        status: 'draft',
+        coin_cost: input.coin_cost.toString(), // Convert number to string for numeric column
+        word_count: wordCount,
+        views: 0,
+        is_free: input.is_free
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const chapter = result[0];
+    return {
+      ...chapter,
+      coin_cost: parseFloat(chapter.coin_cost) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Chapter creation failed:', error);
+    throw error;
+  }
+};
